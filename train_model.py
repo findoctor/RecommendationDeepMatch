@@ -8,6 +8,8 @@ import torchtext
 import tqdm
 from sampler import get_posneg_samples, SampleCollator
 from models.DSSM import DSSM
+from input_features import build_features
+from evaluation import evaluate_DSSM
 
 def divide_chunks(l, n): 
     # looping till length l 
@@ -57,6 +59,7 @@ def train(dataset, cate_encoding_dict, args):
     model.to(device)
 
     user_batch_ids = list(divide_chunks(df_user[ukey].values.tolist(), args.batch_size)) 
+    item_batch_ids = list(divide_chunks(df_item[ikey].values.tolist(), args.batch_size)) 
     for epoch_id in range(args.num_epochs):
         model.train()
         batch_count = 0
@@ -80,25 +83,43 @@ def train(dataset, cate_encoding_dict, args):
                 print("Epoch {}, Loss: {} ".format(epoch_id+1, batch_loss/batch_count ))
                 batch_count = 0
                 batch_loss = 0.0
-        
 
-           
+        # inference user embeddings and store them
+        all_user_embeddings = {}
+        for batch_id in user_batch_ids:
+            sub_df_user = df_user[ df_user[ukey].isin(batch_id) ]
+            user_feature_dict = build_features(sub_df_user, user_feat_objects, cate_encoding_dict, item_ids=None)
+            user_feature_output = model.inference_embedding(user_feature_dict, 'user').numpy()
+            assert len(batch_id) == user_feature_output.shape[0]
+            for u_id, u_emb in zip(batch_id, user_feature_output):
+                all_user_embeddings[u_id] = u_emb
+        
+        # inference item embeddings and store them
+        all_item_embeddings = {}
+        for batch_id in item_batch_ids:
+            sub_df_item = df_item[ df_item[ikey].isin(batch_id) ]
+            item_feature_dict = build_features(sub_df_item, item_feat_objects, cate_encoding_dict, item_ids=batch_id)
+            item_feature_output = model.inference_embedding(item_feature_dict, 'item').numpy()
+            assert len(batch_id) == item_feature_output.shape[0]
+            for _id, _emb in zip(batch_id, item_feature_output):
+                all_item_embeddings[_id] = _emb
+        with open(args.user_embedding_path, 'wb') as f:
+            pickle.dump(all_user_embeddings, f)
+        with open(args.item_embedding_path, 'wb') as f:
+            pickle.dump(all_item_embeddings, f)
 
         # Evaluate
-        """
         model.eval()
+        df_user_test = df_user.sample(n=1024)
+        test_user_ids = df_user_test[ukey].values.tolist()
         with torch.no_grad():
-            item_batches = torch.arange(g.number_of_nodes(item_ntype)).split(args.batch_size)
-            h_item_batches = []
-            for blocks in dataloader_test:
-                for i in range(len(blocks)):
-                    blocks[i] = blocks[i].to(device)
+            dnn_out_dim = model.dnn_out_dim  # user embedding dimensions 
+            eva_class = evaluate_DSSM(dnn_out_dim, test_user_ids, \
+                        args.user_embedding_path, args.item_embedding_path, args.k, args)
+            print("Recommendation Acc = {}".format( \
+                    eva_class.get_accuracy(df_review, ukey, ikey, skey) ))
 
-                h_item_batches.append(model.get_repr(blocks))
-            h_item = torch.cat(h_item_batches, 0)
-
-            print(evaluation.evaluate_nn(dataset, h_item, args.k, args.batch_size))
-        """
+ 
 
 if __name__ == '__main__':
     # Arguments
@@ -114,6 +135,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=3e-5)
     parser.add_argument('-k', type=int, default=10)
     parser.add_argument('--score_thres', type=float, default=3.5)
+    parser.add_argument('--user_embedding_path', type=str, default='saved/user_embeddings.pkl')
+    parser.add_argument('--item_embedding_path', type=str, default='saved/item_embeddings.pkl')
     args = parser.parse_args()
 
     # Load dataset

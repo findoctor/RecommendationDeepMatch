@@ -15,6 +15,9 @@ from utils import train_test_split_by_time
 user_data_path = 'data/yelp_academic_dataset_user.json'
 review_data_path = 'data/yelp_academic_dataset_review.json'
 item_data_path = 'data/yelp_academic_dataset_business.json'
+"""
+归一化 二值化 
+"""
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
