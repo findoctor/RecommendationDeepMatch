@@ -4,6 +4,7 @@ from base_modules import DNN
 import torch
 import torch.nn as nn
 from utils import *
+import logging
 
 def build_DNN_module(feat_objects, dnn_dims, dnn_activation, l2_reg_dnn):
     input_dim=0
@@ -32,10 +33,29 @@ class DSSM(nn.Module):
         # build embedding layers
         self.user_embedding_dict = get_embedding_dict(self.user_features)
         self.item_embedding_dict = get_embedding_dict(self.item_features)
+        self.dnn_out_dim = None
         # BN, dropout
         if dropout:
             self.dropout_rate = dropout
-
+    
+    def inference_embedding(self, feature_dict, type):
+        """
+        param input_data: tuple(dict,dict), key: feature name; value: feature values(if batch mode)
+        return 
+        """
+        if type == 'user':
+            # user side feature
+            user_dnn_input = get_input_features(feature_dict, self.user_embedding_dict)
+            user_dnn_out = self.user_DNN_module(user_dnn_input)
+            return user_dnn_out
+        elif type == 'item':
+            # item side feature
+            item_dnn_input = get_input_features(feature_dict, self.item_embedding_dict)
+            item_dnn_out = self.item_DNN_module(item_dnn_input)
+            return item_dnn_out
+        else:
+            logging.error('Wrong type! should either be user or item')
+            return None
 
     def forward(self, user_feature_dict, item_feature_dict):
         """
@@ -50,6 +70,7 @@ class DSSM(nn.Module):
         user_dnn_out = self.user_DNN_module(user_dnn_input)
         item_dnn_out = self.item_DNN_module(item_dnn_input)
         assert user_dnn_out.shape == item_dnn_out.shape
+        self.dnn_out_dim = user_dnn_out.shape[1]
         cos = nn.CosineSimilarity(dim=1, eps=1e-6)
         sim_score = cos(user_dnn_out, item_dnn_out)
         return sim_score  #[batch_size, ]
