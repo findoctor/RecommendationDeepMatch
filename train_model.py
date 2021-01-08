@@ -64,22 +64,29 @@ def train(dataset, cate_encoding_dict, args):
         model.train()
         batch_count = 0
         batch_loss = 0.0
-        for batch_id in user_batch_ids:
-            batch_count += 1
-            pos_user_features, pos_item_features = get_posneg_samples(df_review, df_user, df_item, ukey, ikey, skey, datekey, \
+        for i, batch_id in enumerate(user_batch_ids):
+            pos_user_features, pos_item_features, n_pos_samples = get_posneg_samples(df_review, df_user, df_item, ukey, ikey, skey, datekey, \
                                             batch_id, user_feat_objects, item_feat_objects, cate_encoding_dict, 'pos', args.score_thres)
-            neg_user_features, neg_item_features = get_posneg_samples(df_review, df_user, df_item, ukey, ikey, skey, datekey, \
+            neg_user_features, neg_item_features, n_neg_samples = get_posneg_samples(df_review, df_user, df_item, ukey, ikey, skey, datekey, \
                                             batch_id, user_feat_objects, item_feat_objects, cate_encoding_dict, 'neg', args.score_thres)
             
+            if n_pos_samples > 0:
+                pos_target = torch.ones(n_pos_samples)
+                pos_loss = model(pos_user_features, pos_item_features, pos_target)
+                pos_loss.backward()
+                opt.step()
+                batch_loss += pos_loss.item()
+                batch_count += n_pos_samples
             
-            pos_score = model(pos_user_features, pos_item_features).sum()
-            neg_score = model(neg_user_features, neg_item_features).sum()
-            loss = neg_score-pos_score
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-            batch_loss += loss.item()
-            if batch_count % 100 == 0:
+            if n_neg_samples > 0:
+                neg_target = torch.zeros(n_neg_samples)
+                neg_loss = model(neg_user_features, neg_item_features, neg_target)
+                opt.zero_grad()
+                neg_loss.backward()
+                opt.step()
+                batch_loss += neg_loss.item()
+                batch_count += n_neg_samples
+            if i % 100 == 0 and batch_count > 0:
                 print("Epoch {}, Loss: {} ".format(epoch_id+1, batch_loss/batch_count ))
                 batch_count = 0
                 batch_loss = 0.0
@@ -110,7 +117,7 @@ def train(dataset, cate_encoding_dict, args):
 
         # Evaluate
         model.eval()
-        df_user_test = df_user.sample(n=1024)
+        df_user_test = df_user.sample(n=args.num_test_samples)
         test_user_ids = df_user_test[ukey].values.tolist()
         with torch.no_grad():
             dnn_out_dim = model.dnn_out_dim  # user embedding dimensions 
@@ -124,10 +131,11 @@ def train(dataset, cate_encoding_dict, args):
 if __name__ == '__main__':
     # Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('dataset_path', type=str)
-    parser.add_argument('catogory_encoding_path', type=str)
+    parser.add_argument('--dataset_path', type=str)
+    parser.add_argument('--catogory_encoding_path', type=str)
     
-    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--num_test_samples', type=int, default=1024)
     parser.add_argument('--device', type=str, default='cpu')        # can also be "cuda:0"
     parser.add_argument('--num_epochs', type=int, default=1)
     parser.add_argument('--batches_per_epoch', type=int, default=20000)

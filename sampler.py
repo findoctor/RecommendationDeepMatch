@@ -22,7 +22,7 @@ def get_posneg_samples(df_review, df_user, df_item, ukey, ikey, skey, datekey, \
         param score_thres: if score > thres,  -> postive samples
         
         Return
-            tuple (user_features, item_features)
+            tuple (user_features, item_features), # of samples
             where user_features is a dict (key: feature_name, value: batch_size vals) 
                   e.g. {'gender': [0,1,0]}
     """
@@ -47,6 +47,10 @@ def get_posneg_samples(df_review, df_user, df_item, ukey, ikey, skey, datekey, \
     sub_user_ids = sub_review_df[ukey].tolist()
     sub_item_ids = sub_review_df[ikey].tolist()  # may contain duplicates
 
+    # if no samples
+    if len(sub_user_ids) == 0:
+        return None, None, 0
+
     # build user & item features
     sub_user_indices = [  df_user.loc[df_user[ukey] == user_id ].index[0] for user_id in sub_user_ids ]
     sub_user_df = df_user.iloc[sub_user_indices]
@@ -55,11 +59,9 @@ def get_posneg_samples(df_review, df_user, df_item, ukey, ikey, skey, datekey, \
     # build sub item df from list of item_ids
     sub_item_indices = [  df_item.loc[df_item[ikey] == item_id ].index[0] for item_id in sub_item_ids ]
     sub_item_df = df_item.iloc[sub_item_indices]
-    # sub_item_df = df_item[df_item[ikey].isin(sub_item_ids) ]
     item_features = build_features(sub_item_df, ifeats, cate_encoding_dict, sub_item_ids)
 
-
-    return user_features, item_features
+    return user_features, item_features, len(sub_user_indices)
 
 class SampleCollator(object):
     def __init__(self, df_review, df_user, df_item, ukey, ikey, skey, datekey, \
@@ -80,11 +82,11 @@ class SampleCollator(object):
 
     def collate_samples(self, batches):
         user_seeds = batches
-        user_features, item_features = get_posneg_samples(self.df_review, self.df_user,\
+        user_features, item_features, num_samples = get_posneg_samples(self.df_review, self.df_user,\
             self.df_item, self.ukey, self.ikey, self.skey, self.datekey, user_seeds,  \
                 self.ufeats, self.ifeats, self.cate_encoding_dict, self.flag, self.score_thres)
 
-        return [user_features, item_features]
+        return [user_features, item_features, num_samples]
 
 
     

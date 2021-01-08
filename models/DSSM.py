@@ -6,6 +6,8 @@ import torch.nn as nn
 from utils import *
 import logging
 
+# TODO: 对双塔两侧输出的Embedding进行L2标准化；
+
 def build_DNN_module(feat_objects, dnn_dims, dnn_activation, l2_reg_dnn):
     input_dim=0
     for feat in feat_objects:
@@ -57,10 +59,10 @@ class DSSM(nn.Module):
             logging.error('Wrong type! should either be user or item')
             return None
 
-    def forward(self, user_feature_dict, item_feature_dict):
+    def forward(self, user_feature_dict, item_feature_dict, target):
         """
         param input_data: tuple(dict,dict), key: feature name; value: feature values(if batch mode)
-        return 
+        param target: [batch_size]
         """
         # user side feature
         user_dnn_input = get_input_features(user_feature_dict, self.user_embedding_dict)
@@ -73,7 +75,11 @@ class DSSM(nn.Module):
         self.dnn_out_dim = user_dnn_out.shape[1]
         cos = nn.CosineSimilarity(dim=1, eps=1e-6)
         sim_score = cos(user_dnn_out, item_dnn_out)
-        return sim_score  #[batch_size, ]
+        # feed to sigmoid, then compute log-loss
+        sim_sigmoid = torch.sigmoid(sim_score)
+        loss_func = nn.BCELoss()
+        loss = loss_func(sim_sigmoid, target) 
+        return loss  # scalar
 
 
 
